@@ -150,3 +150,16 @@ func (r *DeviceRepository) UpdateStatusTx(tx *gorm.DB, id uint, status string) e
 	}
 	return nil
 }
+
+// UpdateAvailabilityTx 在事务中同时更新设备状态与恢复使用条件说明（联合判定落库）。
+func (r *DeviceRepository) UpdateAvailabilityTx(tx *gorm.DB, id uint, status, note string) error {
+	res := tx.Model(&model.Device{}).Where("id = ?", id).
+		Updates(map[string]any{"status": status, "availability_note": note})
+	if res.Error != nil {
+		return fmt.Errorf("update device availability: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

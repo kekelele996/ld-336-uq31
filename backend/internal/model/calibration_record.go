@@ -16,6 +16,8 @@ type CalibrationRecord struct {
 	CertificateNo         string     `gorm:"size:128" json:"certificate_no"`
 	CalibrationOrg        string     `gorm:"size:128" json:"calibration_org"`
 	Remark                string     `gorm:"size:512" json:"remark"`
+	// AvailabilityNote 计量结果登记后对设备恢复使用条件的判定说明（缺维修闭环/缺合格计量）。
+	AvailabilityNote      string     `gorm:"size:512;column:availability_note" json:"availability_note"`
 	CreatedBy             string     `gorm:"size:64" json:"created_by"`
 	CreatedAt             time.Time  `json:"created_at"`
 	UpdatedAt             time.Time  `json:"updated_at"`

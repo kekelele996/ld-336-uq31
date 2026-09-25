@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/medasset/medasset/internal/constants"
 	"github.com/medasset/medasset/internal/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -48,6 +49,16 @@ func (r *MaintenanceRepository) FindByID(id uint) (*model.MaintenanceRecord, err
 func (r *MaintenanceRepository) FindByIDForUpdate(tx *gorm.DB, id uint) (*model.MaintenanceRecord, error) {
 	var m model.MaintenanceRecord
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&m, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return &m, err
+}
+
+// FindByIDTx 在指定事务中不加锁查询（用于先取 device_id 再按固定顺序加锁）。
+func (r *MaintenanceRepository) FindByIDTx(tx *gorm.DB, id uint) (*model.MaintenanceRecord, error) {
+	var m model.MaintenanceRecord
+	err := tx.First(&m, id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}
@@ -104,6 +115,20 @@ func (r *MaintenanceRepository) IsRecordNoTaken(v string) (bool, error) {
 	var n int64
 	if err := r.db.Model(&model.MaintenanceRecord{}).Where("record_no = ?", v).Count(&n).Error; err != nil {
 		return false, fmt.Errorf("check record_no: %w", err)
+	}
+	return n > 0, nil
+}
+
+// ExistsActiveRepairTx 判断设备是否存在未闭环（待处理/处理中）的故障维修工单。
+// 设备恢复使用条件之一：不存在此类工单。必须在事务内调用，且调用方应已先锁定设备行。
+func (r *MaintenanceRepository) ExistsActiveRepairTx(tx *gorm.DB, deviceID uint) (bool, error) {
+	var n int64
+	err := tx.Model(&model.MaintenanceRecord{}).
+		Where("device_id = ? AND type = ? AND status IN ?",
+			deviceID, "repair", constants.MaintenanceUnfinishedStatuses).
+		Count(&n).Error
+	if err != nil {
+		return false, fmt.Errorf("count active repair: %w", err)
 	}
 	return n > 0, nil
 }

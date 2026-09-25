@@ -20,6 +20,7 @@ export const DEVICE_STATUS = {
   IN_STORAGE: 'in_storage',
   IN_USE: 'in_use',
   UNDER_MAINTENANCE: 'under_maintenance',
+  UNAVAILABLE: 'unavailable',
   DISABLED: 'disabled',
   SCRAPPED: 'scrapped',
 } as const;
@@ -28,6 +29,7 @@ export const DEVICE_STATUS_TEXT: Record<string, string> = {
   in_storage: '在库',
   in_use: '使用中',
   under_maintenance: '维修中',
+  unavailable: '不可用',
   disabled: '已禁用',
   scrapped: '已报废',
 };

@@ -23,6 +23,8 @@ type Device struct {
 	RegistrationNo      string    `gorm:"size:128" json:"registration_no"`
 	CertificateNo       string    `gorm:"size:128" json:"certificate_no"`
 	Status              string    `gorm:"size:32;not null;default:in_storage;index" json:"status"`
+	// AvailabilityNote 恢复使用判定说明：满足条件时为空；不满足时列出还缺哪项（维修/计量）。
+	AvailabilityNote    string    `gorm:"size:512;column:availability_note" json:"availability_note"`
 	CalibrationRequired bool      `gorm:"default:false" json:"calibration_required"`
 	LastMaintenanceAt   *time.Time `json:"last_maintenance_at"`
 	PurchaseRequestID   uint      `gorm:"index" json:"purchase_request_id"`

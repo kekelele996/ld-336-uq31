@@ -2,12 +2,20 @@ package constants
 
 // 设备状态枚举。
 const (
-	DeviceStatusInStorage       = "in_storage"        // 在库
-	DeviceStatusInUse           = "in_use"            // 使用中
-	DeviceStatusUnderMaintenance = "under_maintenance" // 维修中
-	DeviceStatusDisabled        = "disabled"          // 已禁用
-	DeviceStatusScrapped        = "scrapped"          // 已报废
+	DeviceStatusInStorage        = "in_storage"         // 在库
+	DeviceStatusInUse            = "in_use"             // 使用中
+	DeviceStatusUnderMaintenance = "under_maintenance"  // 维修中（存在未闭环维修工单）
+	DeviceStatusUnavailable      = "unavailable"        // 不可用（恢复使用条件未全部满足，如计量不合格/已过期/未计量）
+	DeviceStatusDisabled         = "disabled"           // 已禁用
+	DeviceStatusScrapped         = "scrapped"           // 已报废
 )
+
+// MaintenanceUnfinishedStatuses 未闭环（处理中）的工单状态集合。
+// 注意：业务上"处理中"包含"待处理"与"处理中"，已完成/已取消的工单不再阻塞设备恢复使用。
+var MaintenanceUnfinishedStatuses = []string{
+	MaintenanceStatusPending,
+	MaintenanceStatusInProgress,
+}
 
 // 采购申请状态枚举。
 const (

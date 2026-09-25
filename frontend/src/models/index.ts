@@ -48,6 +48,8 @@ export interface Device {
   registration_no: string;
   certificate_no: string;
   status: string;
+  /** 恢复使用判定说明：满足时为空，不满足时列出还缺哪项（维修/计量） */
+  availability_note: string;
   calibration_required: boolean;
   last_maintenance_at: string;
   purchase_request_id: number;
@@ -100,6 +102,8 @@ export interface MaintenanceRecord {
   cost: number;
   fault_description: string;
   repair_result: string;
+  /** 工单完成后对设备恢复使用条件的判定说明（还缺哪项） */
+  availability_note: string;
   created_by: string;
 }
 
@@ -116,6 +120,8 @@ export interface CalibrationRecord {
   certificate_no: string;
   calibration_org: string;
   remark: string;
+  /** 计量结果登记后对设备恢复使用条件的判定说明（还缺哪项） */
+  availability_note: string;
 }
 
 export interface TransferRequest {

@@ -25,6 +25,11 @@ func newTestServiceEnv(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("open sqlite failed: %v", err)
 	}
+	// 内存 SQLite 每个连接持有独立库，事务会从连接池取到无表的连接，
+	// 这里强制单连接，保证 AutoMigrate 与事务使用同一个底层库。
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
 	if err := db.AutoMigrate(&model.User{}, &model.Device{}, &model.PurchaseRequest{},
 		&model.MaintenanceRecord{}, &model.CalibrationRecord{}, &model.TransferRequest{},
 		&model.ScrapRequest{}, &model.AuditLog{}); err != nil {

@@ -103,7 +103,12 @@ import { Subject, takeUntil } from 'rxjs';
           </ng-container>
           <ng-container matColumnDef="status">
             <th mat-header-cell *matHeaderCellDef>状态</th>
-            <td mat-cell *matCellDef="let d"><app-status-badge [status]="d.status" [labelMap]="statusText"></app-status-badge></td>
+            <td mat-cell *matCellDef="let d">
+              <app-status-badge [status]="d.status" [labelMap]="statusText"></app-status-badge>
+              <div class="avail-note" *ngIf="d.availability_note && !isAvailReady(d)" matTooltip="{{ d.availability_note }}">
+                <mat-icon class="warn">info</mat-icon>{{ d.availability_note }}
+              </div>
+            </td>
           </ng-container>
           <ng-container matColumnDef="actions">
             <th mat-header-cell *matHeaderCellDef>操作</th>
@@ -128,6 +133,8 @@ import { Subject, takeUntil } from 'rxjs';
   styles: [`
     .full-table { width: 100%; }
     .warn { color: #f44336; font-size: 16px; vertical-align: middle; }
+    .avail-note { color: #c62828; font-size: 12px; margin-top: 2px; max-width: 220px; }
+    .avail-note .mat-icon { font-size: 14px; height: 14px; width: 14px; vertical-align: middle; margin-right: 2px; }
     .loading { display: flex; justify-content: center; padding: 24px; }
   `],
 })
@@ -187,6 +194,11 @@ export class DevicesComponent implements OnInit, OnDestroy {
 
   canDisable(d: Device): boolean {
     return d.status !== DEVICE_STATUS.DISABLED && d.status !== DEVICE_STATUS.SCRAPPED;
+  }
+
+  // 恢复条件已满足（使用中）时不显示说明；其余状态下 availability_note 即"还缺哪项"。
+  isAvailReady(d: Device): boolean {
+    return d.status === DEVICE_STATUS.IN_USE;
   }
 
   openCreate(): void {

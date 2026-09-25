@@ -3,9 +3,12 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/medasset/medasset/internal/constants"
 	"github.com/medasset/medasset/internal/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // CalibrationRepository 计量台账仓储。
@@ -29,6 +32,26 @@ func (r *CalibrationRepository) Create(c *model.CalibrationRecord) error {
 func (r *CalibrationRepository) FindByID(id uint) (*model.CalibrationRecord, error) {
 	var c model.CalibrationRecord
 	err := r.db.First(&c, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return &c, err
+}
+
+// FindByIDForUpdate 加锁查询（并发登记结果安全）。
+func (r *CalibrationRepository) FindByIDForUpdate(tx *gorm.DB, id uint) (*model.CalibrationRecord, error) {
+	var c model.CalibrationRecord
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&c, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return &c, err
+}
+
+// FindByIDTx 在指定事务中不加锁查询（用于先取 device_id 再按固定顺序加锁）。
+func (r *CalibrationRepository) FindByIDTx(tx *gorm.DB, id uint) (*model.CalibrationRecord, error) {
+	var c model.CalibrationRecord
+	err := tx.First(&c, id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}
@@ -83,6 +106,22 @@ func (r *CalibrationRepository) IsInstrumentNoTaken(v string) (bool, error) {
 	var n int64
 	if err := r.db.Model(&model.CalibrationRecord{}).Where("instrument_no = ?", v).Count(&n).Error; err != nil {
 		return false, fmt.Errorf("check instrument_no: %w", err)
+	}
+	return n > 0, nil
+}
+
+// ExistsValidQualifiedTx 判断设备是否存在"未过期且结果合格"的计量记录。
+// 未过期 = next_calibration_date 为空（未设置下次计量日期）或不早于当前时间。
+// 设备恢复使用条件之一：无计量要求的设备不调用本方法；有计量要求的设备必须存在此类记录。
+// 必须在事务内调用，且调用方应已先锁定设备行。
+func (r *CalibrationRepository) ExistsValidQualifiedTx(tx *gorm.DB, deviceID uint, now time.Time) (bool, error) {
+	var n int64
+	err := tx.Model(&model.CalibrationRecord{}).
+		Where("device_id = ? AND result = ? AND (next_calibration_date IS NULL OR next_calibration_date > ?)",
+			deviceID, constants.CalibrationResultQualified, now).
+		Count(&n).Error
+	if err != nil {
+		return false, fmt.Errorf("count valid qualified calibration: %w", err)
 	}
 	return n > 0, nil
 }

@@ -24,7 +24,7 @@ type CreateDeviceReq struct {
 	WarrantyMonths      int        `json:"warranty_months" binding:"omitempty,min=0"`
 	RegistrationNo      string     `json:"registration_no" binding:"omitempty,max=128"`
 	CertificateNo       string     `json:"certificate_no" binding:"omitempty,max=128"`
-	Status              string     `json:"status" binding:"omitempty,oneof=in_storage in_use under_maintenance disabled scrapped"`
+	Status              string     `json:"status" binding:"omitempty,oneof=in_storage in_use under_maintenance unavailable disabled scrapped"`
 	CalibrationRequired bool       `json:"calibration_required"`
 	PurchaseRequestID   uint       `json:"purchase_request_id"`
 }

@@ -35,7 +35,7 @@ export function statusLabel(status: string, map: Record<string, string>): string
 export function statusClass(status: string): string {
   const map: Record<string, string> = {
     active: 'green', in_storage: 'blue', in_use: 'green', under_maintenance: 'orange',
-    disabled: 'red', scrapped: 'grey', pending_device_admin: 'orange', pending_dean: 'orange',
+    unavailable: 'red', disabled: 'red', scrapped: 'grey', pending_device_admin: 'orange', pending_dean: 'orange',
     approved: 'blue', delivered: 'purple', accepted: 'green', rejected: 'red',
     pending: 'orange', in_progress: 'blue', completed: 'green', cancelled: 'grey',
     normal: 'green', unqualified: 'red', due: 'orange', expired: 'red',

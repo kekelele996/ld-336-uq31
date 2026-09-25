@@ -86,7 +86,10 @@ import { Subject, takeUntil } from 'rxjs';
           </ng-container>
           <ng-container matColumnDef="status">
             <th mat-header-cell *matHeaderCellDef>状态</th>
-            <td mat-cell *matCellDef="let m"><app-status-badge [status]="m.status" [labelMap]="statusText"></app-status-badge></td>
+            <td mat-cell *matCellDef="let m">
+              <app-status-badge [status]="m.status" [labelMap]="statusText"></app-status-badge>
+              <div class="avail-note" *ngIf="m.type === 'repair' && m.availability_note" matTooltip="{{ m.availability_note }}">{{ m.availability_note }}</div>
+            </td>
           </ng-container>
           <ng-container matColumnDef="actions">
             <th mat-header-cell *matHeaderCellDef>操作</th>
@@ -108,6 +111,7 @@ import { Subject, takeUntil } from 'rxjs';
   styles: [`
     .full-table { width: 100%; }
     .full-table button { margin-right: 4px; }
+    .avail-note { color: #c62828; font-size: 12px; margin-top: 2px; max-width: 220px; }
     .loading { display: flex; justify-content: center; padding: 24px; }
   `],
 })
@@ -176,7 +180,12 @@ export class MaintenanceComponent implements OnInit, OnDestroy {
     ref.afterClosed().subscribe((payload) => {
       if (!payload) return;
       maintenanceCompleteApi(this.http, m.id, payload).subscribe({
-        next: () => { this.snackBar.open('工单已完成', '关闭', { duration: 2000 }); this.load(); },
+        next: (res) => {
+          // 联合判定后可能未恢复使用，提示语以返回的判定说明为准。
+          const note = res.availability_note ? `：${res.availability_note}` : '';
+          this.snackBar.open(`工单已完成${note}`, '关闭', { duration: 3500 });
+          this.load();
+        },
         error: (err) => this.snackBar.open(parseHttpError(err), '关闭', { duration: 3000 }),
       });
     });

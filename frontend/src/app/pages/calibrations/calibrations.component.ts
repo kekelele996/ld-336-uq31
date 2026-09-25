@@ -75,7 +75,10 @@ import { Subject, takeUntil } from 'rxjs';
           </ng-container>
           <ng-container matColumnDef="status">
             <th mat-header-cell *matHeaderCellDef>状态</th>
-            <td mat-cell *matCellDef="let c"><app-status-badge [status]="c.status" [labelMap]="statusText"></app-status-badge></td>
+            <td mat-cell *matCellDef="let c">
+              <app-status-badge [status]="c.status" [labelMap]="statusText"></app-status-badge>
+              <div class="avail-note" *ngIf="c.availability_note" matTooltip="{{ c.availability_note }}">{{ c.availability_note }}</div>
+            </td>
           </ng-container>
           <ng-container matColumnDef="actions">
             <th mat-header-cell *matHeaderCellDef>操作</th>
@@ -94,6 +97,7 @@ import { Subject, takeUntil } from 'rxjs';
   `,
   styles: [`
     .full-table { width: 100%; }
+    .avail-note { color: #c62828; font-size: 12px; margin-top: 2px; max-width: 240px; }
     .loading { display: flex; justify-content: center; padding: 24px; }
     .due-panel { margin-bottom: 16px; }
     .due-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
@@ -142,8 +146,10 @@ export class CalibrationsComponent implements OnInit, OnDestroy {
     ref.afterClosed().subscribe((payload) => {
       if (!payload) return;
       calibrationResultApi(this.http, c.id, payload).subscribe({
-        next: () => {
-          this.snackBar.open(payload.result === 'unqualified' ? '已登记为不合格，设备自动禁用' : '计量结果已登记', '关闭', { duration: 2500 });
+        next: (res) => {
+          // 合格也可能因维修工单未闭环而未投用，以返回的判定说明为准。
+          const note = res.availability_note ? `：${res.availability_note}` : '';
+          this.snackBar.open(`计量结果已登记${note}`, '关闭', { duration: 3500 });
           this.load();
         },
         error: (err) => this.snackBar.open(parseHttpError(err), '关闭', { duration: 3000 }),

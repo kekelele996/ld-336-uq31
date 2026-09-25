@@ -19,6 +19,8 @@ type MaintenanceRecord struct {
 	Cost            float64    `gorm:"type:decimal(12,2)" json:"cost"`
 	FaultDescription string    `gorm:"size:1024" json:"fault_description"`
 	RepairResult    string     `gorm:"size:1024" json:"repair_result"`
+	// AvailabilityNote 工单完成后对设备恢复使用条件的判定说明（缺维修闭环/缺合格计量）。
+	AvailabilityNote string    `gorm:"size:512;column:availability_note" json:"availability_note"`
 	CreatedBy       string     `gorm:"size:64" json:"created_by"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`

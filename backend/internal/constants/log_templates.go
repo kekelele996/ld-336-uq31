@@ -13,6 +13,7 @@ const (
 	LogDeviceDisabled      = "设备禁用: device_id=%d asset_code=%s operator=%s"
 	LogDeviceEnabled       = "设备启用: device_id=%d asset_code=%s operator=%s"
 	LogDeviceStatusChanged = "设备状态变更: device_id=%d from=%s to=%s"
+	LogDeviceAvailabilityRechecked = "设备恢复使用联合判定: device_id=%d ready=%t status=%s note=%s"
 	LogPurchaseCreated     = "采购申请提交: request_no=%s department=%s device_name=%s status=%s"
 	LogPurchaseAdminApprove = "设备科审核通过: request_no=%s approver=%s status=%s"
 	LogPurchaseAdminReject = "设备科驳回: request_no=%s approver=%s comment=%s"

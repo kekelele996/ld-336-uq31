@@ -17,14 +17,16 @@ import (
 
 // CalibrationService 计量与质控服务。
 type CalibrationService struct {
-	repo   *repository.CalibrationRepository
-	device *repository.DeviceRepository
-	audit  *AuditService
-	log    *slog.Logger
+	repo            *repository.CalibrationRepository
+	device          *repository.DeviceRepository
+	maintenanceRepo *repository.MaintenanceRepository
+	availability    *DeviceAvailabilityService
+	audit           *AuditService
+	log             *slog.Logger
 }
 
-func NewCalibrationService(repo *repository.CalibrationRepository, device *repository.DeviceRepository, audit *AuditService, log *slog.Logger) *CalibrationService {
-	return &CalibrationService{repo: repo, device: device, audit: audit, log: log}
+func NewCalibrationService(repo *repository.CalibrationRepository, device *repository.DeviceRepository, maintenanceRepo *repository.MaintenanceRepository, availability *DeviceAvailabilityService, audit *AuditService, log *slog.Logger) *CalibrationService {
+	return &CalibrationService{repo: repo, device: device, maintenanceRepo: maintenanceRepo, availability: availability, audit: audit, log: log}
 }
 
 // Create 建立计量台账。
@@ -89,14 +91,25 @@ func (s *CalibrationService) DueList() ([]model.CalibrationRecord, error) {
 	return list, nil
 }
 
-// RecordResult 登记计量结果；不合格自动标记设备禁用。
+// RecordResult 登记计量结果。
+// 合格：重新执行恢复使用联合判定（无处理中维修工单 且 计量未过期合格才转为使用中）；
+// 不合格：设备保持禁用，并在计量记录与设备台账上说明原因。
+// 事务按"先锁设备行、再锁计量记录行"的固定顺序加锁，与维修侧互斥，并发办理不互相覆盖。
 func (s *CalibrationService) RecordResult(id uint, req *dto.CalibrationResultReq, operator string) (*model.CalibrationRecord, error) {
 	var updated *model.CalibrationRecord
 	err := s.repo.DB().Transaction(func(tx *gorm.DB) error {
-		c, err := s.repo.FindByID(id)
+		pre, err := s.repo.FindByIDTx(tx, id)
 		if errors.Is(err, repository.ErrNotFound) {
 			return util.NewAppError(http.StatusNotFound, "计量记录不存在: id="+util.Uint64String(id), nil)
 		}
+		if err != nil {
+			return err
+		}
+		d, err := s.device.FindByIDForUpdate(tx, pre.DeviceID)
+		if err != nil {
+			return err
+		}
+		c, err := s.repo.FindByIDForUpdate(tx, id)
 		if err != nil {
 			return err
 		}
@@ -111,17 +124,48 @@ func (s *CalibrationService) RecordResult(id uint, req *dto.CalibrationResultReq
 		c.CertificateNo = req.CertificateNo
 		c.CalibrationOrg = req.CalibrationOrg
 		c.Remark = req.Remark
+		if d.Status == constants.DeviceStatusScrapped {
+			return util.NewAppError(http.StatusConflict, constants.MsgDeviceInScrapped, nil)
+		}
 		if req.Result == constants.CalibrationResultQualified {
 			c.Status = constants.CalibrationStatusNormal
 			c.Result = constants.CalibrationResultQualified
 		} else {
 			c.Status = constants.CalibrationStatusUnqualified
 			c.Result = constants.CalibrationResultUnqualified
-			// 不合格设备自动标记禁用。
-			if err := s.device.UpdateStatusTx(tx, c.DeviceID, constants.DeviceStatusDisabled); err != nil {
+		}
+		// 先落库本次计量结果与下次计量日期，联合判定 COUNT 计量记录时才能读到最新值。
+		if err := s.repo.UpdateTx(tx, c); err != nil {
+			return err
+		}
+		if req.Result == constants.CalibrationResultQualified {
+			// 合格也不能直接投用：维修工单未闭环时仍保持不可用，说明还缺哪项。
+			outcome, err := s.availability.EvaluateTx(tx, d, now)
+			if err != nil {
 				return err
 			}
+			c.AvailabilityNote = outcome.Note
+			if err := s.availability.ApplyTx(tx, d, outcome); err != nil {
+				return err
+			}
+		} else {
+			note := constants.MsgAvailabilityCalibUnqualified
+			// 若同时还有处理中的维修工单，也要在说明里指出，避免只看到"计量不合格"。
+			openRepair, err := s.maintenanceOpen(tx, d.ID)
+			if err != nil {
+				return err
+			}
+			if openRepair {
+				note = constants.MsgAvailabilityCalibUnqualified + "；" + constants.MsgAvailabilityRepairOpen
+			}
+			c.AvailabilityNote = note
+			if err := s.device.UpdateAvailabilityTx(tx, c.DeviceID, constants.DeviceStatusDisabled, note); err != nil {
+				return err
+			}
+			d.Status = constants.DeviceStatusDisabled
+			d.AvailabilityNote = note
 		}
+		// 回写判定说明到计量记录（计量台账与设备台账均说明还缺哪项）。
 		if err := s.repo.UpdateTx(tx, c); err != nil {
 			return err
 		}
@@ -132,6 +176,11 @@ func (s *CalibrationService) RecordResult(id uint, req *dto.CalibrationResultReq
 		return nil, wrapSvcErr(err)
 	}
 	s.log.Info(fmt.Sprintf(constants.LogCalibrationResult, updated.InstrumentNo, updated.Result, updated.Status, updated.DeviceID))
-	s.audit.Record(0, operator, "RESULT", "calibration", util.Uint64String(updated.ID), "登记计量结果: "+updated.InstrumentNo+"="+updated.Result, operator, "")
+	s.audit.Record(0, operator, "RESULT", "calibration", util.Uint64String(updated.ID), "登记计量结果: "+updated.InstrumentNo+"="+updated.Result+"；恢复判定: "+updated.AvailabilityNote, operator, "")
 	return updated, nil
+}
+
+// maintenanceOpen 检查设备是否存在未闭环的故障维修工单（与联合判定同一口径）。
+func (s *CalibrationService) maintenanceOpen(tx *gorm.DB, deviceID uint) (bool, error) {
+	return s.maintenanceRepo.ExistsActiveRepairTx(tx, deviceID)
 }

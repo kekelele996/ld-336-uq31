@@ -18,14 +18,15 @@ import (
 
 // MaintenanceService 维护保养与故障维修服务。
 type MaintenanceService struct {
-	repo   *repository.MaintenanceRepository
-	device *repository.DeviceRepository
-	audit  *AuditService
-	log    *slog.Logger
+	repo        *repository.MaintenanceRepository
+	device      *repository.DeviceRepository
+	availability *DeviceAvailabilityService
+	audit       *AuditService
+	log         *slog.Logger
 }
 
-func NewMaintenanceService(repo *repository.MaintenanceRepository, device *repository.DeviceRepository, audit *AuditService, log *slog.Logger) *MaintenanceService {
-	return &MaintenanceService{repo: repo, device: device, audit: audit, log: log}
+func NewMaintenanceService(repo *repository.MaintenanceRepository, device *repository.DeviceRepository, availability *DeviceAvailabilityService, audit *AuditService, log *slog.Logger) *MaintenanceService {
+	return &MaintenanceService{repo: repo, device: device, availability: availability, audit: audit, log: log}
 }
 
 // Create 创建保养/维修工单（报修或计划执行）。
@@ -125,10 +126,23 @@ func (s *MaintenanceService) List(page, pageSize int, deviceID uint, mType, stat
 func (s *MaintenanceService) Start(id uint, req *dto.StartMaintenanceReq, operator string) (*model.MaintenanceRecord, error) {
 	var updated *model.MaintenanceRecord
 	err := s.repo.DB().Transaction(func(tx *gorm.DB) error {
-		m, err := s.repo.FindByIDForUpdate(tx, id)
+		// 先取一次拿到 device_id，再按"先设备行、后工单行"的固定顺序加锁，
+		// 与计量结果登记保持一致，避免两边同时办理时互相等待/覆盖。
+		pre, err := s.repo.FindByIDTx(tx, id)
 		if errors.Is(err, repository.ErrNotFound) {
 			return util.NewAppError(http.StatusNotFound, "工单不存在: id="+util.Uint64String(id), nil)
 		}
+		if err != nil {
+			return err
+		}
+		d, err := s.device.FindByIDForUpdate(tx, pre.DeviceID)
+		if err != nil {
+			return err
+		}
+		if d.Status == constants.DeviceStatusScrapped {
+			return util.NewAppError(http.StatusConflict, constants.MsgDeviceInScrapped, nil)
+		}
+		m, err := s.repo.FindByIDForUpdate(tx, id)
 		if err != nil {
 			return err
 		}
@@ -140,10 +154,18 @@ func (s *MaintenanceService) Start(id uint, req *dto.StartMaintenanceReq, operat
 		if err := s.repo.UpdateTx(tx, m); err != nil {
 			return err
 		}
-		// 维修类工单开始时设备进入维修中状态。
+		// 维修类工单开始时设备进入维修中状态；设备已被禁用（如计量不合格）时不覆盖禁用状态，
+		// 仅在说明里补充"存在处理中的维修工单"，两侧办理互不覆盖。
 		if m.Type == constants.MaintenanceTypeRepair {
-			if err := s.device.UpdateStatusTx(tx, m.DeviceID, constants.DeviceStatusUnderMaintenance); err != nil {
-				return err
+			if d.Status == constants.DeviceStatusDisabled {
+				note := constants.MsgAvailabilityCalibUnqualified + "；" + constants.MsgAvailabilityRepairOpen
+				if err := s.device.UpdateAvailabilityTx(tx, m.DeviceID, constants.DeviceStatusDisabled, note); err != nil {
+					return err
+				}
+			} else {
+				if err := s.device.UpdateAvailabilityTx(tx, m.DeviceID, constants.DeviceStatusUnderMaintenance, constants.MsgAvailabilityRepairOpen); err != nil {
+					return err
+				}
 			}
 		}
 		updated = m
@@ -157,14 +179,25 @@ func (s *MaintenanceService) Start(id uint, req *dto.StartMaintenanceReq, operat
 	return updated, nil
 }
 
-// Complete 完成工单（更新工时/成本/配件，恢复设备状态）。
+// Complete 完成工单（更新工时/成本/配件）。
+// 维修类工单完成后执行恢复使用联合判定：维修工单已闭环 + 计量记录有效合格，
+// 两项同时满足才转为使用中；否则保持不可用，并在工单与设备台账上说明还缺哪项。
 func (s *MaintenanceService) Complete(id uint, req *dto.CompleteMaintenanceReq, operator string) (*model.MaintenanceRecord, error) {
 	var updated *model.MaintenanceRecord
 	err := s.repo.DB().Transaction(func(tx *gorm.DB) error {
-		m, err := s.repo.FindByIDForUpdate(tx, id)
+		// 固定加锁顺序：先锁设备行，再锁工单行，与计量侧互斥，防止并发互相覆盖。
+		pre, err := s.repo.FindByIDTx(tx, id)
 		if errors.Is(err, repository.ErrNotFound) {
 			return util.NewAppError(http.StatusNotFound, "工单不存在: id="+util.Uint64String(id), nil)
 		}
+		if err != nil {
+			return err
+		}
+		d, err := s.device.FindByIDForUpdate(tx, pre.DeviceID)
+		if err != nil {
+			return err
+		}
+		m, err := s.repo.FindByIDForUpdate(tx, id)
 		if err != nil {
 			return err
 		}
@@ -179,12 +212,26 @@ func (s *MaintenanceService) Complete(id uint, req *dto.CompleteMaintenanceReq, 
 		m.WorkHours = req.WorkHours
 		m.Cost = req.Cost
 		m.RepairResult = req.RepairResult
+		// 先落库工单闭环状态，联合判定 COUNT 工单时才能读到最新状态。
 		if err := s.repo.UpdateTx(tx, m); err != nil {
 			return err
 		}
-		// 维修完成后设备恢复使用中。
+
+		// 维修类工单完成后按联合判定恢复设备使用；保养工单不参与设备状态恢复。
 		if m.Type == constants.MaintenanceTypeRepair {
-			if err := s.device.UpdateStatusTx(tx, m.DeviceID, constants.DeviceStatusInUse); err != nil {
+			if d.Status == constants.DeviceStatusScrapped {
+				return util.NewAppError(http.StatusConflict, constants.MsgDeviceInScrapped, nil)
+			}
+			outcome, err := s.availability.EvaluateTx(tx, d, now)
+			if err != nil {
+				return err
+			}
+			m.AvailabilityNote = outcome.Note
+			if err := s.availability.ApplyTx(tx, d, outcome); err != nil {
+				return err
+			}
+			// 回写判定说明到工单（设备台账与工单均说明还缺哪项）。
+			if err := s.repo.UpdateTx(tx, m); err != nil {
 				return err
 			}
 		}
@@ -198,18 +245,26 @@ func (s *MaintenanceService) Complete(id uint, req *dto.CompleteMaintenanceReq, 
 		return nil, wrapSvcErr(err)
 	}
 	s.log.Info(fmt.Sprintf(constants.LogMaintenanceCompleted, updated.RecordNo, updated.DeviceID, updated.Cost, updated.Status))
-	s.audit.Record(0, operator, "COMPLETE", "maintenance", util.Uint64String(updated.ID), "完成工单: "+updated.RecordNo, operator, "")
+	s.audit.Record(0, operator, "COMPLETE", "maintenance", util.Uint64String(updated.ID), "完成工单: "+updated.RecordNo+"；恢复判定: "+updated.AvailabilityNote, operator, "")
 	return updated, nil
 }
 
-// Cancel 取消工单。
+// Cancel 取消工单。未闭环维修工单被取消后同样重新执行恢复使用联合判定。
 func (s *MaintenanceService) Cancel(id uint, req *dto.CancelMaintenanceReq, operator string) (*model.MaintenanceRecord, error) {
 	var updated *model.MaintenanceRecord
 	err := s.repo.DB().Transaction(func(tx *gorm.DB) error {
-		m, err := s.repo.FindByIDForUpdate(tx, id)
+		pre, err := s.repo.FindByIDTx(tx, id)
 		if errors.Is(err, repository.ErrNotFound) {
 			return util.NewAppError(http.StatusNotFound, "工单不存在: id="+util.Uint64String(id), nil)
 		}
+		if err != nil {
+			return err
+		}
+		d, err := s.device.FindByIDForUpdate(tx, pre.DeviceID)
+		if err != nil {
+			return err
+		}
+		m, err := s.repo.FindByIDForUpdate(tx, id)
 		if err != nil {
 			return err
 		}
@@ -220,8 +275,23 @@ func (s *MaintenanceService) Cancel(id uint, req *dto.CancelMaintenanceReq, oper
 		if req.Reason != "" {
 			m.RepairResult = "取消原因: " + req.Reason
 		}
+		// 先落库取消状态，联合判定才能把该工单排除在"处理中"之外。
 		if err := s.repo.UpdateTx(tx, m); err != nil {
 			return err
+		}
+		if m.Type == constants.MaintenanceTypeRepair && d.Status != constants.DeviceStatusScrapped {
+			now := time.Now()
+			outcome, err := s.availability.EvaluateTx(tx, d, now)
+			if err != nil {
+				return err
+			}
+			m.AvailabilityNote = outcome.Note
+			if err := s.availability.ApplyTx(tx, d, outcome); err != nil {
+				return err
+			}
+			if err := s.repo.UpdateTx(tx, m); err != nil {
+				return err
+			}
 		}
 		updated = m
 		return nil
@@ -230,7 +300,7 @@ func (s *MaintenanceService) Cancel(id uint, req *dto.CancelMaintenanceReq, oper
 		return nil, wrapSvcErr(err)
 	}
 	s.log.Info(fmt.Sprintf(constants.LogMaintenanceCancelled, updated.RecordNo, req.Reason, updated.Status))
-	s.audit.Record(0, operator, "CANCEL", "maintenance", util.Uint64String(updated.ID), "取消工单: "+updated.RecordNo, operator, "")
+	s.audit.Record(0, operator, "CANCEL", "maintenance", util.Uint64String(updated.ID), "取消工单: "+updated.RecordNo+"；恢复判定: "+updated.AvailabilityNote, operator, "")
 	return updated, nil
 }
 

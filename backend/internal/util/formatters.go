@@ -40,6 +40,8 @@ func DeviceStatusText(status string) string {
 		return "使用中"
 	case constants.DeviceStatusUnderMaintenance:
 		return "维修中"
+	case constants.DeviceStatusUnavailable:
+		return "不可用"
 	case constants.DeviceStatusDisabled:
 		return "已禁用"
 	case constants.DeviceStatusScrapped:
