@@ -17,10 +17,10 @@ import (
 
 // Deps 路由装配依赖。
 type Deps struct {
-	DB   *gorm.DB
-	Cfg  *config.Config
-	Log  *slog.Logger
-	RDB  *redis.Client
+	DB  *gorm.DB
+	Cfg *config.Config
+	Log *slog.Logger
+	RDB *redis.Client
 }
 
 // New 构建 Gin 引擎并注册全部路由。
@@ -53,9 +53,11 @@ func New(deps Deps) *gin.Engine {
 	auditSvc := service.NewAuditService(auditRepo, deps.Log)
 	userSvc := service.NewUserService(userRepo, auditSvc, deps.Cfg.JWTSecret, 24, deps.Log)
 	deviceSvc := service.NewDeviceService(deviceRepo, auditSvc, deps.Log)
+	// 设备恢复使用综合判定服务：维修完成与计量结果登记复用同一判定，避免两边互相覆盖。
+	availabilitySvc := service.NewDeviceAvailabilityService(deviceRepo, maintenanceRepo, calibrationRepo, deps.Log)
 	purchaseSvc := service.NewPurchaseService(purchaseRepo, deviceRepo, auditSvc, deps.Log)
-	maintenanceSvc := service.NewMaintenanceService(maintenanceRepo, deviceRepo, auditSvc, deps.Log)
-	calibrationSvc := service.NewCalibrationService(calibrationRepo, deviceRepo, auditSvc, deps.Log)
+	maintenanceSvc := service.NewMaintenanceService(maintenanceRepo, deviceRepo, availabilitySvc, auditSvc, deps.Log)
+	calibrationSvc := service.NewCalibrationService(calibrationRepo, deviceRepo, availabilitySvc, auditSvc, deps.Log)
 	transferSvc := service.NewTransferService(transferRepo, deviceRepo, auditSvc, deps.Log)
 	scrapSvc := service.NewScrapService(scrapRepo, deviceRepo, auditSvc, deps.Log)
 	statsSvc := service.NewStatsService(deviceRepo, maintenanceRepo, calibrationRepo, purchaseRepo, auditSvc, deps.Log)

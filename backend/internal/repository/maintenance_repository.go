@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/medasset/medasset/internal/constants"
 	"github.com/medasset/medasset/internal/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -24,6 +25,11 @@ func (r *MaintenanceRepository) DB() *gorm.DB { return r.db }
 // Create 创建保养/维修工单。
 func (r *MaintenanceRepository) Create(m *model.MaintenanceRecord) error {
 	return r.db.Create(m).Error
+}
+
+// CreateTx 在指定事务中创建保养/维修工单。
+func (r *MaintenanceRepository) CreateTx(tx *gorm.DB, m *model.MaintenanceRecord) error {
+	return tx.Create(m).Error
 }
 
 // CreateBatch 批量创建保养计划工单（事务内使用）。
@@ -48,6 +54,16 @@ func (r *MaintenanceRepository) FindByID(id uint) (*model.MaintenanceRecord, err
 func (r *MaintenanceRepository) FindByIDForUpdate(tx *gorm.DB, id uint) (*model.MaintenanceRecord, error) {
 	var m model.MaintenanceRecord
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&m, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return &m, err
+}
+
+// FindByIDTx 事务内普通查询（不加锁），用于在锁设备行之前获取工单的 device_id。
+func (r *MaintenanceRepository) FindByIDTx(tx *gorm.DB, id uint) (*model.MaintenanceRecord, error) {
+	var m model.MaintenanceRecord
+	err := tx.First(&m, id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}
@@ -106,4 +122,20 @@ func (r *MaintenanceRepository) IsRecordNoTaken(v string) (bool, error) {
 		return false, fmt.Errorf("check record_no: %w", err)
 	}
 	return n > 0, nil
+}
+
+// CountOpenRepairForUpdate 事务内加锁统计设备未办结的故障维修工单
+// （待处理/处理中均视为"处理中"，维修恢复条件未满足）。
+func (r *MaintenanceRepository) CountOpenRepairForUpdate(tx *gorm.DB, deviceID uint) (int64, error) {
+	var n int64
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Model(&model.MaintenanceRecord{}).
+		Where("device_id = ? AND type = ? AND status IN ?",
+			deviceID, constants.MaintenanceTypeRepair,
+			[]string{constants.MaintenanceStatusPending, constants.MaintenanceStatusInProgress}).
+		Count(&n).Error
+	if err != nil {
+		return 0, fmt.Errorf("count open repairs: %w", err)
+	}
+	return n, nil
 }

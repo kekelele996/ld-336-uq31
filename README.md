@@ -21,8 +21,8 @@ docker compose up -d --build
 
 1. **设备台账管理**：全院医疗器械电子台账，支持按科室、设备类型、状态、关键字多维度检索；登记设备自动生成分发条码。
 2. **采购与验收流程**：科室申请 → 设备科审核 → 院长审批 → 到货登记 → 验收登记（配件清单、合格证/注册证）→ 正式入台账并生成分发条码。
-3. **维护与保养管理**：日检/周检/月检/年检保养计划自动生成与到期提醒，工程师执行并记录保养内容、更换配件、工时与费用；故障扫码快速报修与维修过程记录。
-4. **计量与质控管理**：计量台账（器具编号、周期、上下次计量日期），到期预警清单，计量结果登记（不合格自动标记设备禁用）。
+3. **维护与保养管理**：日检/周检/月检/年检保养计划自动生成与到期提醒，工程师执行并记录保养内容、更换配件、工时与费用；故障扫码快速报修与维修过程记录。维修完成不再直接放行设备，而是触发"恢复使用综合判定"。
+4. **计量与质控管理**：计量台账（器具编号、周期、上下次计量日期），到期预警清单，计量结果登记。设备恢复使用必须同时满足：**①不存在处理中（待处理/处理中）的故障维修工单；②有计量要求的设备存在未过期且结果合格的计量记录**。任一条件缺失，设备保持"不可用"，并在设备台账（`unavailable_reason`）、维修工单与计量记录（`recover_note`）上注明还缺哪项；两项各自办结后都会重新判定，满足才转为"使用中"。两边同时办理时通过 `SELECT ... FOR UPDATE` 行锁与统一加锁顺序串行化，互不覆盖。
 5. **设备调拨与报废**：科室间调拨申请审批后自动更新设备科室与责任人；报废审批通过后设备状态变更为"已报废"并归档。
 6. **资产统计与合规报表**：设备总数、资产总值、科室/品牌/类型分布、维修成本、计量到期预警、待处理采购等总览数据，满足监管数据报送要求。
 7. **横切能力**：JWT 认证 + RBAC 权限、操作审计日志、全局错误处理与请求追踪（request id）、Redis 限流。
@@ -203,11 +203,33 @@ curl -s http://localhost:19936/api/v1/stats/overview -H "Authorization: Bearer $
 | 枚举 | 后端出现位置 | 前端出现位置 |
 | --- | --- | --- |
 | 角色 RoleType（SUPER_ADMIN/DEVICE_ADMIN/DEAN/DEPARTMENT/ENGINEER） | `internal/constants/roles.go`、`internal/model/user.go`、`internal/dto/user_dto.go`、`internal/middleware/rbac.go`、`internal/router/user.go`、`internal/router/purchase.go`、`internal/router/maintenance.go`、`internal/router/transfer.go`、`internal/router/scrap.go`、`internal/router/audit.go`、`internal/util/formatters.go(RoleText)`、`internal/service/user_service.go` | `src/constants/enums.ts`、`src/app/guards/role.guard.ts`、`src/app/layouts/main-layout.component.ts`、`src/app/pages/purchases/purchases.component.ts`、`src/app/pages/transfers/transfers.component.ts`、`src/app/pages/scraps/scraps.component.ts` |
-| 设备状态 DeviceStatus（in_storage/in_use/under_maintenance/disabled/scrapped） | `internal/constants/status.go`、`internal/model/device.go`、`internal/dto/device_dto.go`、`internal/service/device_service.go`、`internal/service/purchase_service.go`、`internal/service/maintenance_service.go`、`internal/service/calibration_service.go`、`internal/service/scrap_service.go`、`internal/repository/device_repository.go`、`internal/util/formatters.go`、`internal/constants/error_codes.go`、`internal/constants/log_templates.go` | `src/constants/enums.ts`、`src/app/components/status-badge/status-badge.component.ts`、`src/app/pages/devices/devices.component.ts`、`src/utils/format.ts` |
+| 设备状态 DeviceStatus（in_storage/in_use/under_maintenance/disabled/unavailable/scrapped） | `internal/constants/status.go`、`internal/model/device.go`、`internal/dto/device_dto.go`、`internal/service/device_service.go`、`internal/service/device_availability_service.go`、`internal/service/purchase_service.go`、`internal/service/maintenance_service.go`、`internal/service/calibration_service.go`、`internal/service/scrap_service.go`、`internal/service/stats_service.go`、`internal/repository/device_repository.go`、`internal/util/formatters.go`、`internal/constants/error_codes.go`、`internal/constants/log_templates.go`、`internal/constants/messages.go`（恢复判定缺失条件文案） | `src/constants/enums.ts`、`src/models/index.ts`、`src/app/components/status-badge/status-badge.component.ts`、`src/app/pages/devices/devices.component.ts`、`src/app/pages/maintenance/maintenance.component.ts`、`src/app/pages/calibrations/calibrations.component.ts`、`src/app/pages/dashboard/dashboard.component.ts`、`src/utils/format.ts` |
 | 采购状态 PurchaseStatus（pending_device_admin/pending_dean/approved/delivered/accepted/rejected） | `internal/constants/status.go`、`internal/model/purchase_request.go`、`internal/service/purchase_service.go`、`internal/repository/purchase_repository.go`、`internal/util/formatters.go`、`internal/constants/log_templates.go`、`internal/constants/messages.go` | `src/constants/enums.ts`、`src/app/pages/purchases/purchases.component.ts`、`src/app/components/status-badge/status-badge.component.ts`、`src/utils/format.ts` |
-| 保养/维修类型与状态（daily/weekly/monthly/yearly/repair；pending/in_progress/completed/cancelled） | `internal/constants/status.go`、`internal/model/maintenance_record.go`、`internal/dto/maintenance_dto.go`、`internal/service/maintenance_service.go`、`internal/repository/maintenance_repository.go`、`internal/util/formatters.go`、`internal/constants/log_templates.go` | `src/constants/enums.ts`、`src/app/pages/maintenance/maintenance.component.ts`、`src/app/components/status-badge/status-badge.component.ts`、`src/utils/format.ts` |
-| 计量状态 CalibrationStatus（normal/unqualified/due/expired） | `internal/constants/status.go`、`internal/model/calibration_record.go`、`internal/service/calibration_service.go`、`internal/repository/calibration_repository.go`、`internal/util/formatters.go`、`internal/constants/log_templates.go` | `src/constants/enums.ts`、`src/app/pages/calibrations/calibrations.component.ts`、`src/app/components/status-badge/status-badge.component.ts`、`src/utils/format.ts` |
+| 保养/维修类型与状态（daily/weekly/monthly/yearly/repair；pending/in_progress/completed/cancelled） | `internal/constants/status.go`、`internal/model/maintenance_record.go`（含 `recover_note` 恢复判定留痕）、`internal/dto/maintenance_dto.go`、`internal/service/maintenance_service.go`、`internal/service/device_availability_service.go`、`internal/repository/maintenance_repository.go`、`internal/util/formatters.go`、`internal/constants/log_templates.go`、`internal/constants/messages.go` | `src/constants/enums.ts`、`src/models/index.ts`、`src/app/pages/maintenance/maintenance.component.ts`、`src/app/components/status-badge/status-badge.component.ts`、`src/utils/format.ts` |
+| 计量状态 CalibrationStatus（normal/unqualified/due/expired） | `internal/constants/status.go`、`internal/model/calibration_record.go`（含 `recover_note` 恢复判定留痕）、`internal/service/calibration_service.go`、`internal/service/device_availability_service.go`、`internal/repository/calibration_repository.go`、`internal/util/formatters.go`、`internal/constants/log_templates.go`、`internal/constants/messages.go` | `src/constants/enums.ts`、`src/models/index.ts`、`src/app/pages/calibrations/calibrations.component.ts`、`src/app/components/status-badge/status-badge.component.ts`、`src/utils/format.ts` |
 | 调拨/报废状态（pending/approved/rejected） | `internal/constants/status.go`、`internal/model/transfer_request.go`、`internal/model/scrap_request.go`、`internal/service/transfer_service.go`、`internal/service/scrap_service.go`、`internal/util/formatters.go`、`internal/constants/log_templates.go` | `src/constants/enums.ts`、`src/app/pages/transfers/transfers.component.ts`、`src/app/pages/scraps/scraps.component.ts`、`src/app/components/status-badge/status-badge.component.ts`、`src/utils/format.ts` |
+
+## 设备恢复使用状态机（维修 × 计量双条件）
+
+设备不再"只看最后一次操作"。恢复使用（`in_use`）必须**同时**满足：
+
+1. **维修条件**：该设备不存在未办结（`pending` / `in_progress`）的故障维修（`repair`）工单；
+2. **计量条件**：设备 `calibration_required=true` 时，存在最近一次计量结果为合格（`qualified`）且 `next_calibration_date` 未过期的记录；无计量要求的设备本条件自动满足。
+
+| 时机 | 行为 |
+| --- | --- |
+| 维修工单开始（repair → in_progress） | 设备置为 `under_maintenance`，台账写明"存在处理中的维修工单" |
+| 维修工单完成 | 调用共享的 `DeviceAvailabilityService.RecheckTx` 重新判定：两项都满足 → `in_use`；否则 → `unavailable`，工单 `recover_note` 与设备 `unavailable_reason` 注明还缺哪项 |
+| 计量结果登记（合格/不合格）/ 建立合格计量台账 | 同样调用 `RecheckTx`：合格但维修未办结仍保持 `unavailable`；不合格时缺失原因合并"计量不合格"与"维修未办结"，**不会**把维修侧状态覆盖掉 |
+| 两边同时办理 | 两个事务均先对设备行 `SELECT ... FOR UPDATE`（统一加锁顺序：设备行 → 工单/计量行），后提交者基于对方已提交数据重新判定；状态、缺失原因、判定时间由单条 `UPDATE` 原子写入，互不覆盖 |
+
+判定结果留痕位置（三处说明一致）：
+
+- 设备台账：`devices.status`、`devices.unavailable_reason`、`devices.last_recover_check_at`；
+- 维修工单：`maintenance_records.recover_note`（前端维修列表状态列 ⓘ 图标悬浮查看）；
+- 计量记录：`calibration_records.recover_note`（前端计量列表状态列 ⓘ 图标悬浮查看）。
+
+核心实现：`backend/internal/service/device_availability_service.go`（被 `maintenance_service.go` 与 `calibration_service.go` 同时复用），并发与各种缺失组合的表驱动用例见 `device_availability_service_test.go`。
 
 ## 横切关注点触达文件层
 

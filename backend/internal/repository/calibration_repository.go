@@ -6,6 +6,7 @@ import (
 
 	"github.com/medasset/medasset/internal/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // CalibrationRepository 计量台账仓储。
@@ -25,10 +26,47 @@ func (r *CalibrationRepository) Create(c *model.CalibrationRecord) error {
 	return r.db.Create(c).Error
 }
 
+// CreateTx 在指定事务中创建计量记录。
+func (r *CalibrationRepository) CreateTx(tx *gorm.DB, c *model.CalibrationRecord) error {
+	return tx.Create(c).Error
+}
+
 // FindByID 按 ID 查询。
 func (r *CalibrationRepository) FindByID(id uint) (*model.CalibrationRecord, error) {
 	var c model.CalibrationRecord
 	err := r.db.First(&c, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return &c, err
+}
+
+// FindByIDForUpdate 加锁查询。
+func (r *CalibrationRepository) FindByIDForUpdate(tx *gorm.DB, id uint) (*model.CalibrationRecord, error) {
+	var c model.CalibrationRecord
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&c, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return &c, err
+}
+
+// FindByIDTx 事务内普通查询（不加锁），用于在锁设备行之前获取记录的 device_id。
+func (r *CalibrationRepository) FindByIDTx(tx *gorm.DB, id uint) (*model.CalibrationRecord, error) {
+	var c model.CalibrationRecord
+	err := tx.First(&c, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return &c, err
+}
+
+// LatestByDeviceForUpdate 事务内加锁读取设备最近一次计量记录（用于恢复使用综合判定）。
+func (r *CalibrationRepository) LatestByDeviceForUpdate(tx *gorm.DB, deviceID uint) (*model.CalibrationRecord, error) {
+	var c model.CalibrationRecord
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("device_id = ?", deviceID).
+		Order("id DESC").First(&c).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}

@@ -24,27 +24,27 @@ type CreateDeviceReq struct {
 	WarrantyMonths      int        `json:"warranty_months" binding:"omitempty,min=0"`
 	RegistrationNo      string     `json:"registration_no" binding:"omitempty,max=128"`
 	CertificateNo       string     `json:"certificate_no" binding:"omitempty,max=128"`
-	Status              string     `json:"status" binding:"omitempty,oneof=in_storage in_use under_maintenance disabled scrapped"`
+	Status              string     `json:"status" binding:"omitempty,oneof=in_storage in_use under_maintenance disabled unavailable scrapped"`
 	CalibrationRequired bool       `json:"calibration_required"`
 	PurchaseRequestID   uint       `json:"purchase_request_id"`
 }
 
 // UpdateDeviceReq 更新设备请求。
 type UpdateDeviceReq struct {
-	Name                string     `json:"name" binding:"required,max=128"`
-	Model               string     `json:"model" binding:"omitempty,max=128"`
-	Manufacturer        string     `json:"manufacturer" binding:"omitempty,max=128"`
-	SerialNumber        string     `json:"serial_number" binding:"omitempty,max=128"`
-	Category            string     `json:"category" binding:"omitempty,max=64"`
-	Department          string     `json:"department" binding:"omitempty,max=128"`
-	ResponsiblePerson   string     `json:"responsible_person" binding:"omitempty,max=64"`
-	Location            string     `json:"location" binding:"omitempty,max=128"`
-	Supplier            string     `json:"supplier" binding:"omitempty,max=128"`
-	PurchaseAmount      float64    `json:"purchase_amount" binding:"omitempty,min=0"`
-	WarrantyMonths      int        `json:"warranty_months" binding:"omitempty,min=0"`
-	RegistrationNo      string     `json:"registration_no" binding:"omitempty,max=128"`
-	CertificateNo       string     `json:"certificate_no" binding:"omitempty,max=128"`
-	CalibrationRequired bool       `json:"calibration_required"`
+	Name                string  `json:"name" binding:"required,max=128"`
+	Model               string  `json:"model" binding:"omitempty,max=128"`
+	Manufacturer        string  `json:"manufacturer" binding:"omitempty,max=128"`
+	SerialNumber        string  `json:"serial_number" binding:"omitempty,max=128"`
+	Category            string  `json:"category" binding:"omitempty,max=64"`
+	Department          string  `json:"department" binding:"omitempty,max=128"`
+	ResponsiblePerson   string  `json:"responsible_person" binding:"omitempty,max=64"`
+	Location            string  `json:"location" binding:"omitempty,max=128"`
+	Supplier            string  `json:"supplier" binding:"omitempty,max=128"`
+	PurchaseAmount      float64 `json:"purchase_amount" binding:"omitempty,min=0"`
+	WarrantyMonths      int     `json:"warranty_months" binding:"omitempty,min=0"`
+	RegistrationNo      string  `json:"registration_no" binding:"omitempty,max=128"`
+	CertificateNo       string  `json:"certificate_no" binding:"omitempty,max=128"`
+	CalibrationRequired bool    `json:"calibration_required"`
 }
 
 // DeviceDetail 设备详情响应。

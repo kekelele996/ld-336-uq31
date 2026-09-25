@@ -11,6 +11,7 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatCardModule } from '@angular/material/card';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatPaginatorModule } from '@angular/material/paginator';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { PageHeaderComponent } from '../../components/page-header/page-header.component';
 import { StatusBadgeComponent } from '../../components/status-badge/status-badge.component';
@@ -34,7 +35,7 @@ import { Subject, takeUntil } from 'rxjs';
     MatCardModule,
     CommonModule, ReactiveFormsModule, MatTableModule, MatButtonModule, MatIconModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatDialogModule, MatProgressSpinnerModule, MatPaginatorModule,
-    MatSnackBarModule, PageHeaderComponent, StatusBadgeComponent, EmptyStateComponent,
+    MatTooltipModule, MatSnackBarModule, PageHeaderComponent, StatusBadgeComponent, EmptyStateComponent,
   ],
   template: `
     <app-page-header title="维护保养与维修" subtitle="保养计划自动生成、到期提醒、故障扫码报修与维修记录"></app-page-header>
@@ -86,7 +87,14 @@ import { Subject, takeUntil } from 'rxjs';
           </ng-container>
           <ng-container matColumnDef="status">
             <th mat-header-cell *matHeaderCellDef>状态</th>
-            <td mat-cell *matCellDef="let m"><app-status-badge [status]="m.status" [labelMap]="statusText"></app-status-badge></td>
+            <td mat-cell *matCellDef="let m">
+              <app-status-badge [status]="m.status" [labelMap]="statusText"></app-status-badge>
+              <mat-icon
+                *ngIf="m.type === 'repair' && m.recover_note"
+                [class.warn]="m.status === statuses.COMPLETED && m.recover_note.indexOf('暂不可用') >= 0"
+                class="note-icon"
+                [matTooltip]="m.recover_note">info</mat-icon>
+            </td>
           </ng-container>
           <ng-container matColumnDef="actions">
             <th mat-header-cell *matHeaderCellDef>操作</th>
@@ -109,6 +117,8 @@ import { Subject, takeUntil } from 'rxjs';
     .full-table { width: 100%; }
     .full-table button { margin-right: 4px; }
     .loading { display: flex; justify-content: center; padding: 24px; }
+    .note-icon { font-size: 16px; vertical-align: middle; color: #1976d2; cursor: help; }
+    .note-icon.warn { color: #f44336; }
   `],
 })
 export class MaintenanceComponent implements OnInit, OnDestroy {
@@ -176,7 +186,14 @@ export class MaintenanceComponent implements OnInit, OnDestroy {
     ref.afterClosed().subscribe((payload) => {
       if (!payload) return;
       maintenanceCompleteApi(this.http, m.id, payload).subscribe({
-        next: () => { this.snackBar.open('工单已完成', '关闭', { duration: 2000 }); this.load(); },
+        next: (record) => {
+          // 维修完成仅触发重新判定：是否恢复使用取决于“无处理中工单 + 计量合格未过期”两项。
+          const msg = record?.recover_note
+            ? (record.recover_note.indexOf('暂不可用') >= 0 ? `工单已完成，${record.recover_note}` : '工单已完成，设备已恢复使用')
+            : '工单已完成';
+          this.snackBar.open(msg, '关闭', { duration: 3500 });
+          this.load();
+        },
         error: (err) => this.snackBar.open(parseHttpError(err), '关闭', { duration: 3000 }),
       });
     });

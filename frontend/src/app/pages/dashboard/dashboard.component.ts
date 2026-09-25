@@ -35,6 +35,10 @@ import { Subject, takeUntil } from 'rxjs';
         <div class="stat-value">{{ data.under_maintenance }}</div>
       </mat-card>
       <mat-card class="stat-card">
+        <div class="stat-label">不可用设备</div>
+        <div class="stat-value warn">{{ data.unavailable_devices || 0 }}</div>
+      </mat-card>
+      <mat-card class="stat-card">
         <div class="stat-label">已报废设备</div>
         <div class="stat-value">{{ data.scrapped_devices }}</div>
       </mat-card>

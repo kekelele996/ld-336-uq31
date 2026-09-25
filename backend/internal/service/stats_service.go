@@ -12,12 +12,12 @@ import (
 
 // StatsService 资产统计与合规报表服务。
 type StatsService struct {
-	device       *repository.DeviceRepository
-	maintenance  *repository.MaintenanceRepository
-	calibration  *repository.CalibrationRepository
-	purchase     *repository.PurchaseRepository
-	audit        *AuditService
-	log          *slog.Logger
+	device      *repository.DeviceRepository
+	maintenance *repository.MaintenanceRepository
+	calibration *repository.CalibrationRepository
+	purchase    *repository.PurchaseRepository
+	audit       *AuditService
+	log         *slog.Logger
 }
 
 func NewStatsService(device *repository.DeviceRepository, maintenance *repository.MaintenanceRepository,
@@ -42,6 +42,14 @@ func (s *StatsService) Overview() (*dto.OverviewResp, error) {
 		return nil, util.NewAppError(http.StatusInternalServerError, constants.MsgInternalError, err)
 	}
 	underMaint, err := s.device.Count(constants.DeviceStatusUnderMaintenance)
+	if err != nil {
+		return nil, util.NewAppError(http.StatusInternalServerError, constants.MsgInternalError, err)
+	}
+	unavailable, err := s.device.Count(constants.DeviceStatusUnavailable)
+	if err != nil {
+		return nil, util.NewAppError(http.StatusInternalServerError, constants.MsgInternalError, err)
+	}
+	disabled, err := s.device.Count(constants.DeviceStatusDisabled)
 	if err != nil {
 		return nil, util.NewAppError(http.StatusInternalServerError, constants.MsgInternalError, err)
 	}
@@ -79,17 +87,19 @@ func (s *StatsService) Overview() (*dto.OverviewResp, error) {
 	}
 	s.audit.Record(0, "system", "VIEW", "stats", "overview", "查看资产统计总览", "system", "")
 	return &dto.OverviewResp{
-		TotalDevices:     total,
-		TotalAmount:      totalAmount,
-		InUseDevices:     inUse,
-		UnderMaintenance: underMaint,
-		ScrappedDevices:  scrapped,
-		MaintenanceCost:  maintCost,
-		DepartmentDist:   departmentDist,
-		ManufacturerDist: manufacturerDist,
-		CategoryDist:     categoryDist,
-		CalibrationDue:   calibDue + calibExpired,
-		PendingPurchases: pendingPurchases,
+		TotalDevices:       total,
+		TotalAmount:        totalAmount,
+		InUseDevices:       inUse,
+		UnderMaintenance:   underMaint,
+		UnavailableDevices: unavailable,
+		DisabledDevices:    disabled,
+		ScrappedDevices:    scrapped,
+		MaintenanceCost:    maintCost,
+		DepartmentDist:     departmentDist,
+		ManufacturerDist:   manufacturerDist,
+		CategoryDist:       categoryDist,
+		CalibrationDue:     calibDue + calibExpired,
+		PendingPurchases:   pendingPurchases,
 	}, nil
 }
 

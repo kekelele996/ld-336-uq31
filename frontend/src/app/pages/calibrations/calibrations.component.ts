@@ -7,6 +7,7 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatCardModule } from '@angular/material/card';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatPaginatorModule } from '@angular/material/paginator';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { PageHeaderComponent } from '../../components/page-header/page-header.component';
@@ -27,10 +28,10 @@ import { Subject, takeUntil } from 'rxjs';
   imports: [
     MatCardModule,
     CommonModule, MatTableModule, MatButtonModule, MatIconModule, MatDialogModule, MatProgressSpinnerModule,
-    MatPaginatorModule, MatSnackBarModule, MatExpansionModule, PageHeaderComponent, StatusBadgeComponent, EmptyStateComponent,
+    MatPaginatorModule, MatTooltipModule, MatSnackBarModule, MatExpansionModule, PageHeaderComponent, StatusBadgeComponent, EmptyStateComponent,
   ],
   template: `
-    <app-page-header title="计量与质控" subtitle="计量台账、到期自动提醒、计量结果登记（不合格自动禁用设备）"></app-page-header>
+    <app-page-header title="计量与质控" subtitle="计量台账、到期自动提醒、计量结果登记；恢复使用需同时满足维修办结与计量合格未过期"></app-page-header>
     <div class="filter-bar">
       <div class="spacer"></div>
       <button mat-flat-button color="primary" (click)="openCreate()"><mat-icon>add</mat-icon> 建立计量台账</button>
@@ -75,7 +76,14 @@ import { Subject, takeUntil } from 'rxjs';
           </ng-container>
           <ng-container matColumnDef="status">
             <th mat-header-cell *matHeaderCellDef>状态</th>
-            <td mat-cell *matCellDef="let c"><app-status-badge [status]="c.status" [labelMap]="statusText"></app-status-badge></td>
+            <td mat-cell *matCellDef="let c">
+              <app-status-badge [status]="c.status" [labelMap]="statusText"></app-status-badge>
+              <mat-icon
+                *ngIf="c.recover_note"
+                [class.warn]="c.recover_note.indexOf('暂不可用') >= 0"
+                class="note-icon"
+                [matTooltip]="c.recover_note">info</mat-icon>
+            </td>
           </ng-container>
           <ng-container matColumnDef="actions">
             <th mat-header-cell *matHeaderCellDef>操作</th>
@@ -98,6 +106,8 @@ import { Subject, takeUntil } from 'rxjs';
     .due-panel { margin-bottom: 16px; }
     .due-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
     .due-date { color: #ef6c00; }
+    .note-icon { font-size: 16px; vertical-align: middle; color: #1976d2; cursor: help; }
+    .note-icon.warn { color: #f44336; }
   `],
 })
 export class CalibrationsComponent implements OnInit, OnDestroy {
@@ -142,8 +152,12 @@ export class CalibrationsComponent implements OnInit, OnDestroy {
     ref.afterClosed().subscribe((payload) => {
       if (!payload) return;
       calibrationResultApi(this.http, c.id, payload).subscribe({
-        next: () => {
-          this.snackBar.open(payload.result === 'unqualified' ? '已登记为不合格，设备自动禁用' : '计量结果已登记', '关闭', { duration: 2500 });
+        next: (record) => {
+          // 计量完成仅触发重新判定：是否恢复使用还取决于有无处理中维修工单。
+          const msg = record?.recover_note
+            ? (record.recover_note.indexOf('暂不可用') >= 0 ? `计量结果已登记，${record.recover_note}` : '计量结果已登记，设备已恢复使用')
+            : '计量结果已登记';
+          this.snackBar.open(msg, '关闭', { duration: 3500 });
           this.load();
         },
         error: (err) => this.snackBar.open(parseHttpError(err), '关闭', { duration: 3000 }),

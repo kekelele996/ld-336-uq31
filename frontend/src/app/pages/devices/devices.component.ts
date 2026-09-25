@@ -103,7 +103,13 @@ import { Subject, takeUntil } from 'rxjs';
           </ng-container>
           <ng-container matColumnDef="status">
             <th mat-header-cell *matHeaderCellDef>状态</th>
-            <td mat-cell *matCellDef="let d"><app-status-badge [status]="d.status" [labelMap]="statusText"></app-status-badge></td>
+            <td mat-cell *matCellDef="let d">
+              <app-status-badge [status]="d.status" [labelMap]="statusText"></app-status-badge>
+              <mat-icon
+                *ngIf="d.unavailable_reason"
+                class="warn"
+                [matTooltip]="'恢复使用仍缺：' + d.unavailable_reason">warning</mat-icon>
+            </td>
           </ng-container>
           <ng-container matColumnDef="actions">
             <th mat-header-cell *matHeaderCellDef>操作</th>

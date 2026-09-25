@@ -9,7 +9,7 @@ import (
 
 // 日期、状态文本、类型文本等格式化逻辑集中于此（多处耦合）。
 const (
-	dateLayout = "2006-01-02"
+	dateLayout     = "2006-01-02"
 	dateTimeLayout = "2006-01-02 15:04:05"
 )
 
@@ -42,6 +42,8 @@ func DeviceStatusText(status string) string {
 		return "维修中"
 	case constants.DeviceStatusDisabled:
 		return "已禁用"
+	case constants.DeviceStatusUnavailable:
+		return "不可用"
 	case constants.DeviceStatusScrapped:
 		return "已报废"
 	default:

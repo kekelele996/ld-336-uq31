@@ -3,6 +3,7 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/medasset/medasset/internal/model"
 	"gorm.io/gorm"
@@ -116,7 +117,7 @@ func (r *DeviceRepository) GroupCount(field string) (map[string]int64, error) {
 		Count    int64
 	}
 	var rows []row
-	err := r.db.Model(&model.Device{}).Select(field+" AS group_key, COUNT(*) AS count").Group(field).Scan(&rows).Error
+	err := r.db.Model(&model.Device{}).Select(field + " AS group_key, COUNT(*) AS count").Group(field).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +145,23 @@ func (r *DeviceRepository) UpdateStatusTx(tx *gorm.DB, id uint, status string) e
 	res := tx.Model(&model.Device{}).Where("id = ?", id).Update("status", status)
 	if res.Error != nil {
 		return fmt.Errorf("update device status: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateRecoverStateTx 在事务中更新设备恢复使用综合判定结果（状态+缺失条件说明+判定时间，单条 UPDATE 保证原子）。
+func (r *DeviceRepository) UpdateRecoverStateTx(tx *gorm.DB, id uint, status, reason string, checkedAt time.Time) error {
+	res := tx.Model(&model.Device{}).Where("id = ?", id).
+		Updates(map[string]any{
+			"status":                status,
+			"unavailable_reason":    reason,
+			"last_recover_check_at": checkedAt,
+		})
+	if res.Error != nil {
+		return fmt.Errorf("update device recover state: %w", res.Error)
 	}
 	if res.RowsAffected == 0 {
 		return ErrNotFound
